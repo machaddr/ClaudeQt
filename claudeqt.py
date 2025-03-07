@@ -27,7 +27,7 @@ class ClaudeAIWorker(QtCore.QThread):
                 messages=[
                     {"role": "user", "content": self.user_input}
                 ],
-                max_tokens=2048,
+                max_tokens=4096,
                 temperature=0.7
             )
             self.response_received.emit(response.content[0].text)
@@ -44,7 +44,10 @@ class ClaudeAIWidget(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         
-        self.setGeometry(100, 100, 800, 640)
+        # Set minimum window size
+        self.setMinimumSize(800, 640)
+    
+        # Set window title
         self.setWindowTitle("ClaudeQt")
         
         # Use a transparent pixmap
@@ -61,7 +64,7 @@ class ClaudeAIWidget(QtWidgets.QWidget):
         
         # Set font size and type
         font = QtGui.QFont("Monospace")
-        font.setPointSize(11)
+        font.setPointSize(12)
         self.output_window.setFont(font)
         
         self.output_window.setReadOnly(True)        
