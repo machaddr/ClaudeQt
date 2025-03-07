@@ -44,8 +44,10 @@ class ClaudeAIWidget(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         
-        # Set minimum window size
+        # Set window properties
+        self.setGeometry(100, 100, 800, 640)
         self.setMinimumSize(800, 640)
+        self.showMaximized()
     
         # Set window title
         self.setWindowTitle("ClaudeQt")
