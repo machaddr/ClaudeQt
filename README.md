@@ -18,11 +18,14 @@ Before installing Pythonico, make sure you have the following dependencies insta
 - [Python 3.6 or above](https://www.python.org/downloads/)
 - [PyQt6](https://pypi.org/project/PyQt6/)
 - [Anthropic](https://pypi.org/project/anthropic/)
+- [PyAudio](https://pypi.org/project/PyAudio/)
+- [SpeechRecognition](https://pypi.org/project/SpeechRecognition/)
+- [Markdown](https://pypi.org/project/markdown/)
 
 You can install these dependencies using `pip`, the Python package installer. Open a terminal or command prompt and run the following command:
 
 ```bash
-pip install PyQt6 antrophic
+pip install PyQt6 anthropic pyaudio SpeechRecognition markdown
 ```
 
 Or you can install these dependencies using the package manager of your favorite Linux Distribution.
@@ -42,7 +45,7 @@ To run ClaudeQt, follow these steps:
 
 4. Run the application:
     ```bash
-    python claudeqt.py
+    python3 claudeqt.py
     ```
 
 Make sure you have all the dependencies installed before running the application.
