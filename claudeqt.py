@@ -4,8 +4,8 @@ import sys
 import anthropic
 import re
 import markdown
-import speech_recognition as sr
 import pyaudio
+import speech_recognition as sr
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 
@@ -36,9 +36,11 @@ class ClaudeAIWorker(QtCore.QThread):
 
 class ClaudeAIWidget(QtWidgets.QWidget):
     def closeEvent(self, event):
-        if self.worker.isRunning():
+        if hasattr(self, 'worker') and self.worker.isRunning():
             self.worker.quit()
-            self.worker.wait()
+            if not self.worker.wait(1000):  # Wait up to 1 second
+                self.worker.terminate()  # Force terminate if not quitting cleanly
+                self.worker.wait()  # Wait for termination
         event.accept()
         
     def __init__(self):
@@ -66,7 +68,7 @@ class ClaudeAIWidget(QtWidgets.QWidget):
         
         # Set font size and type
         font = QtGui.QFont("Monospace")
-        font.setPointSize(12)
+        font.setPointSize(11)
         self.output_window.setFont(font)
         
         self.output_window.setReadOnly(True)        
@@ -78,14 +80,42 @@ class ClaudeAIWidget(QtWidgets.QWidget):
         self.input_field = QtWidgets.QLineEdit(self)
         input_layout.addWidget(self.input_field)
         
+        # Add language selector for speech recognition
+        self.language_selector = QtWidgets.QComboBox(self)
+        self.language_selector.addItems([
+            "English (en-US)",
+            "English (en-GB)",
+            "Arabic (ar-SA)",
+            "Chinese (zh-CN)",
+            "Danish (da-DK)",
+            "Dutch (nl-NL)",
+            "Finnish (fi-FI)",
+            "French (fr-FR)",
+            "German (de-DE)",
+            "Italian (it-IT)",
+            "Japanese (ja-JP)",
+            "Korean (ko-KR)",
+            "Norwegian (nb-NO)",
+            "Portuguese (pt-BR)",
+            "Portuguese (pt-PT)",
+            "Spanish (es-ES)",
+            "Swedish (sv-SE)",
+            "Ukrainian (uk-UA)"
+        ])
+        self.language_selector.setToolTip("Select Speech Recognition Language")
+        self.language_selector.setMaximumWidth(120)
+        input_layout.addWidget(self.language_selector)
+        
         # Add a microphone button to trigger voice input
         self.microphone_button = QtWidgets.QPushButton("Mic", self)
+        self.microphone_button.setToolTip("Start/Stop Voice Input")
         self.microphone_button.clicked.connect(self.toggle_voice_input)
         self.is_listening = False  # Flag to track voice input state
         input_layout.addWidget(self.microphone_button)
         
         # Add a send button to send the input
         self.send_button = QtWidgets.QPushButton("Send", self)
+        self.send_button.setToolTip("Send the input to Claude")
         self.send_button.clicked.connect(self.send_request)
         input_layout.addWidget(self.send_button)
 
@@ -129,6 +159,12 @@ class ClaudeAIWidget(QtWidgets.QWidget):
         self.microphone_button.setText("Stop")
         self.input_field.setPlaceholderText("Listening...")
         
+        # Create a timer to stop listening after silence
+        self.silence_timer = QtCore.QTimer(self)
+        self.silence_timer.setInterval(10000)  # 10 seconds for longer inputs
+        self.silence_timer.setSingleShot(True)
+        self.silence_timer.timeout.connect(self.stop_listening)
+        
         try:
             # Initialize PyAudio explicitly first
             self.audio = pyaudio.PyAudio()
@@ -140,6 +176,9 @@ class ClaudeAIWidget(QtWidgets.QWidget):
             # Set up listening in background
             self.stop_listening_callback = self.recognizer.listen_in_background(
                 self.microphone, self.process_voice_input)
+            
+            # Start the silence timer
+            self.silence_timer.start()
                 
         except Exception as e:
             self.is_listening = False
@@ -147,20 +186,15 @@ class ClaudeAIWidget(QtWidgets.QWidget):
             self.microphone_button.setText("Mic")
             self.input_field.setPlaceholderText("")
             
-            # Show error message
-            QtWidgets.QMessageBox.warning(
-                self, 
-                "Microphone Error", 
-                f"Could not initialize microphone: {str(e)}\n\n"
-                "Make sure your microphone is connected and that the application "
-                "has permission to access it."
-            )
-            
     def stop_listening(self):
         self.is_listening = False
         self.microphone_button.setStyleSheet("")
         self.microphone_button.setText("Mic")
         self.input_field.setPlaceholderText("")
+        
+        # Stop the silence timer if it exists and is active
+        if hasattr(self, 'silence_timer') and self.silence_timer.isActive():
+            self.silence_timer.stop()
         
         # First, stop the background listening and wait for it to complete
         # This ensures the thread isn't still using the resources we're about to clean up
@@ -181,40 +215,60 @@ class ClaudeAIWidget(QtWidgets.QWidget):
         # Clean up microphone (which will also clean up its stream)
         if hasattr(self, 'microphone'):
             try:
-                self.microphone.__exit__(None, None, None)
-            except Exception:
-                pass
+                # Check if the microphone has a stream attribute and it's not None
+                if hasattr(self.microphone, 'stream') and self.microphone.stream is not None:
+                    self.microphone.__exit__(None, None, None)
+            except Exception as e:
+                print(f"Error closing microphone: {e}")
             finally:
-                if hasattr(self, 'microphone'):
-                    del self.microphone
+                # Always delete the microphone reference
+                del self.microphone
         
         # Clean up PyAudio last, after all streams are closed
         if hasattr(self, 'audio'):
             try:
                 self.audio.terminate()
-            except Exception as e:
-                # Show error message only if termination fails
-                QtWidgets.QMessageBox.warning(
-                    self, 
-                    "Microphone Error", 
-                    f"Could not properly close microphone: {str(e)}\n\n"
-                    "Make sure your microphone is connected and that the application "
-                    "has permission to access it."
-                )
+            except Exception:
+                pass
             finally:
                 if hasattr(self, 'audio'):
                     del self.audio
-                self.input_field.setPlaceholderText("")
-        
+            
     def process_voice_input(self, recognizer, audio):
         try:
-            user_input = recognizer.recognize_google(audio)
-            self.input_field.setText(user_input)
-            self.send_request()
+            # Get the selected language code from the combobox
+            selected_language = self.language_selector.currentText()
+            language_code = selected_language.split('(')[1].strip(')')
+            
+            user_input = recognizer.recognize_google(audio, language=language_code)
+            if user_input:
+                self.input_field.setText(user_input)
+                # Only send if we detected actual text
+                if len(user_input.strip()) > 0:
+                    self.send_request()
+                    # After sending, wait a bit before stopping
+                    QtCore.QTimer.singleShot(500, self.stop_listening)
+                    return
+            
+            # Voice input was detected, reset the silence timer to continue listening
+            if hasattr(self, 'silence_timer'):
+                # Increase timeout to 10 seconds for longer speaking time
+                self.silence_timer.setInterval(10000)  
+                self.silence_timer.start()
+                      
         except sr.UnknownValueError:
-            pass
+            # Reset the silence timer even when nothing is recognized
+            # This gives more time when user is thinking
+            if hasattr(self, 'silence_timer'):
+                self.silence_timer.start()
         except sr.RequestError:
-            pass        
+            # Handle network errors more gracefully
+            self.input_field.setPlaceholderText("Network error, try again")
+            QtCore.QTimer.singleShot(2000, self.stop_listening)
+        except Exception as e:
+            # Generic error handler
+            self.input_field.setPlaceholderText(f"Error: {str(e)[:20]}")
+            QtCore.QTimer.singleShot(2000, self.stop_listening)            
 
     def send_request(self):
         user_input = str(self.input_field.text())
